@@ -19,10 +19,34 @@ async function signIn(email, password) {
 
 async function signUp(email, password, metadata) {
   const { data, error } = await db.auth.signUp({
-    email, password,
+    email,
+    password,
     options: { data: metadata }
   });
+
   if (error) throw error;
+
+  const user = data.user;
+
+  // 🔥 VERY IMPORTANT: Insert into profiles
+  if (user) {
+    const { error: profileError } = await db
+      .from('profiles')
+      .insert([
+        {
+          id: user.id, // MUST match auth user id
+          email: email,
+          full_name: metadata.full_name,
+          role: metadata.role
+        }
+      ]);
+
+    if (profileError) {
+      console.error("Profile insert error:", profileError);
+      throw profileError;
+    }
+  }
+
   return data;
 }
 
