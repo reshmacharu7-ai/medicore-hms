@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HMS — Emergency</title>
+  <link rel="stylesheet" href="../css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div id="toastContainer" class="toast-container"></div>
+<div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+<!-- Quick Admit Modal -->
+<div id="emergencyModal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" style="color:#ef4444">🚨 Emergency Admission</h2>
+      <div class="modal-close" onclick="document.getElementById('emergencyModal').style.display='none'">✕</div>
+    </div>
+    <form id="emergencyForm">
+      <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px;margin-bottom:18px;font-size:0.85rem;color:#ef4444">
+        ⚠️ Emergency admission — fill key details first, complete records later
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <div class="form-group">
+          <label class="form-label">Patient Name *</label>
+          <input class="form-control" id="eName" placeholder="Full name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Age</label>
+          <input class="form-control" id="eAge" type="number" placeholder="Age">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Gender</label>
+          <select class="form-control" id="eGender">
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Blood Group</label>
+          <select class="form-control" id="eBlood">
+            <option value="">Unknown</option>
+            <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Number</label>
+          <input class="form-control" id="ePhone" placeholder="Phone number">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priority Level</label>
+          <select class="form-control" id="ePriority">
+            <option value="critical">🔴 Critical</option>
+            <option value="high">🟠 High</option>
+            <option value="medium">🟡 Medium</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Presenting Complaint *</label>
+          <textarea class="form-control" id="eComplaint" rows="2" placeholder="Brief description of the emergency..." required></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign Doctor</label>
+          <select class="form-control" id="eDoctor"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign Bed</label>
+          <select class="form-control" id="eBed"></select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('emergencyModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;box-shadow:0 4px 15px rgba(239,68,68,0.4)">🚨 Admit Emergency Patient</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="app-wrapper">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo"><div class="logo-icon">🏥</div><div class="logo-text">MediCore HMS</div></div>
+    <nav class="sidebar-nav"></nav>
+    <div class="sidebar-footer">
+      <a class="nav-item" id="logoutBtn" href="#"><span class="nav-icon">🚪</span><span class="nav-label">Logout</span></a>
+    </div>
+  </aside>
+
+  <div class="main-content" id="mainContent">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="sidebar-toggle" id="sidebarToggle">☰</div>
+        <div class="page-title">Emergency Dashboard</div>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-btn theme-toggle" id="themeToggle">☀️</div>
+        <div class="user-avatar">AD</div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <!-- Alert Banner -->
+      <div class="emergency-header">
+        <div class="emergency-pulse"></div>
+        <div style="flex:1">
+          <div style="font-family:var(--font-display);font-weight:800;font-size:1rem;color:#ef4444">EMERGENCY OPERATIONS CENTER</div>
+          <div style="font-size:0.8rem;color:rgba(239,68,68,0.7)">Real-time monitoring · <span id="emergTime"></span></div>
+        </div>
+        <button onclick="document.getElementById('emergencyModal').style.display='flex'" class="btn" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;animation:emergPulse 2s infinite">🚨 Quick Admit</button>
+      </div>
+
+      <!-- Emergency Stats -->
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-bottom:22px">
+        <div class="stat-card" style="padding:18px;border-color:rgba(239,68,68,0.35)">
+          <div class="stat-label" style="color:#ef4444">🔴 Critical</div>
+          <div class="stat-value" id="eCritical" style="font-size:2rem;color:#ef4444">2</div>
+        </div>
+        <div class="stat-card" style="padding:18px;border-color:rgba(245,158,11,0.35)">
+          <div class="stat-label" style="color:#f59e0b">🟠 High Priority</div>
+          <div class="stat-value" id="eHigh" style="font-size:2rem;color:#f59e0b">1</div>
+        </div>
+        <div class="stat-card" style="padding:18px">
+          <div class="stat-label">Emergency Beds</div>
+          <div class="stat-value" id="eBedsAvail" style="font-size:2rem">—</div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">available of <span id="eTotalBeds">6</span></div>
+        </div>
+        <div class="stat-card" style="padding:18px">
+          <div class="stat-label">On-Call Doctors</div>
+          <div class="stat-value" id="eDocAvail" style="font-size:2rem">—</div>
+        </div>
+        <div class="stat-card" style="padding:18px">
+          <div class="stat-label">Today's Cases</div>
+          <div class="stat-value" id="eTodayCases" style="font-size:2rem">3</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:18px">
+        <!-- Active Emergency Cases -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div class="card-title" style="display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite"></div>
+              Active Emergency Cases
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="emergencyCasesList"></div>
+          </div>
+        </div>
+
+        <!-- ICU Status -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div class="card-title">🏥 ICU Bed Status</div>
+          </div>
+          <div class="card-body" id="icuBedGrid"></div>
+        </div>
+      </div>
+
+      <!-- Quick Resource Panel -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px">
+        <!-- Available Emergency Staff -->
+        <div class="glass-card">
+          <div class="card-header"><div class="card-title">👨‍⚕️ On-Call Staff</div></div>
+          <div class="card-body" id="onCallStaff"></div>
+        </div>
+
+        <!-- Emergency Protocols -->
+        <div class="glass-card">
+          <div class="card-header"><div class="card-title">📋 Emergency Protocols</div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${['Code Blue — Cardiac Arrest', 'Code Red — Fire Emergency', 'Code Orange — Hazmat', 'Code Yellow — Internal Emergency', 'Code Pink — Pediatric Emergency', 'Mass Casualty Protocol'].map((p, i) => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:8px">
+                  <span style="font-size:0.85rem;font-weight:500">${p}</span>
+                  <button class="btn btn-ghost btn-sm" onclick="Toast.info('${p} protocol activated')">Activate</button>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<style>
+@keyframes emergPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+}
+</style>
+
+<script src="../js/supabase-config.js"></script>
+<script src="../js/app.js"></script>
+<script>
+  AppState.currentPage = 'emergency';
+
+  const emergencyCases = [
+    { id: 1, name: 'Unknown Male', age: '~45', complaint: 'Chest pain, suspected MI', priority: 'critical', bed: 'ICU-02', doctor: 'Dr. Ananya Krishnan', time: '09:15', status: 'critical' },
+    { id: 2, name: 'Praveena S.', age: 32, complaint: 'Severe allergic reaction (anaphylaxis)', priority: 'critical', bed: 'EMR-01', doctor: 'Dr. Arun Menon', time: '10:05', status: 'stabilizing' },
+    { id: 3, name: 'Rajan P.', age: 68, complaint: 'Fall injury, suspected hip fracture', priority: 'high', bed: 'EMR-03', doctor: 'Dr. Vikram Rao', time: '11:30', status: 'under-treatment' },
+  ];
+
+  function updateTime() {
+    document.getElementById('emergTime').textContent = new Date().toLocaleTimeString('en-IN');
+  }
+  setInterval(updateTime, 1000); updateTime();
+
+  async function loadEmergency() {
+    const [beds, doctors] = await Promise.all([DB.fetch('beds'), DB.fetch('doctors')]);
+
+    const emrBeds = beds.filter(b => b.ward === 'Emergency');
+    const icuBeds = beds.filter(b => b.ward === 'ICU');
+    const emrAvail = emrBeds.filter(b => b.status === 'available').length;
+    const avlDocs = doctors.filter(d => d.availability === 'available').length;
+
+    document.getElementById('eBedsAvail').textContent = emrAvail;
+    document.getElementById('eTotalBeds').textContent = emrBeds.length;
+    document.getElementById('eDocAvail').textContent = avlDocs;
+
+    // Emergency cases list
+    const casesList = document.getElementById('emergencyCasesList');
+    casesList.innerHTML = emergencyCases.map(c => {
+      const pColors = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b' };
+      const sColors = { critical: 'badge-danger', stabilizing: 'badge-warning', 'under-treatment': 'badge-info' };
+      return `
+        <div style="padding:14px;background:var(--glass-bg);border:1px solid ${pColors[c.priority]}30;border-left:3px solid ${pColors[c.priority]};border-radius:10px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700;font-size:0.9rem">${c.name}</div>
+              <div style="font-size:0.75rem;color:var(--text-muted)">Age: ${c.age} · Bed: ${c.bed}</div>
+            </div>
+            <div style="text-align:right">
+              <span class="badge ${sColors[c.status]}">${c.status}</span>
+              <div style="font-size:0.68rem;color:var(--text-muted);margin-top:3px">⏰ ${c.time}</div>
+            </div>
+          </div>
+          <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:8px">📋 ${c.complaint}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:0.75rem;color:var(--accent-1)">👨‍⚕️ ${c.doctor}</div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="Toast.info('Opening ${c.name} records')">📁 Records</button>
+              <button class="btn btn-primary btn-sm" onclick="Toast.success('Doctor notified!')">📟 Notify</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // ICU Bed Grid
+    document.getElementById('icuBedGrid').innerHTML = `
+      <div class="beds-grid" style="grid-template-columns:repeat(3,1fr)">
+        ${icuBeds.map(b => `
+          <div class="bed-cell ${b.status}" onclick="Toast.info('${b.bed_number}: ${b.status}')">
+            <span class="bed-icon">🛏️</span>
+            <span class="bed-num">${b.bed_number}</span>
+          </div>`).join('')}
+      </div>
+      <div style="margin-top:14px;font-size:0.78rem;color:var(--text-muted)">
+        ${icuBeds.filter(b=>b.status==='available').length} of ${icuBeds.length} ICU beds available
+      </div>`;
+
+    // On-call staff
+    document.getElementById('onCallStaff').innerHTML = doctors.slice(0, 4).map((d, i) => `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+        <div class="avatar-sm ${Utils.avatarClass(i)}">${Utils.initials(d.name)}</div>
+        <div style="flex:1">
+          <div style="font-size:0.875rem;font-weight:600">${d.name}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">${d.specialization}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="badge ${Utils.statusBadge(d.availability)}">${d.availability}</span>
+          <button class="btn btn-ghost btn-icon btn-sm" onclick="Toast.success('Paging ${d.name}...')">📟</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // Quick admit form
+  async function initAdmitForm() {
+    const [doctors, beds] = await Promise.all([DB.fetch('doctors'), DB.fetch('beds')]);
+    document.getElementById('eDoctor').innerHTML = '<option value="">Select on-call doctor...</option>' +
+      doctors.filter(d => d.availability === 'available').map(d => `<option value="${d.id}">${d.name} — ${d.specialization}</option>`).join('');
+    document.getElementById('eBed').innerHTML = '<option value="">Auto-assign available bed</option>' +
+      beds.filter(b => b.status === 'available' && (b.ward === 'Emergency' || b.ward === 'ICU')).map(b => `<option value="${b.id}">${b.bed_number} (${b.ward})</option>`).join('');
+  }
+
+  document.getElementById('emergencyForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const patientData = {
+        name: document.getElementById('eName').value,
+        age: parseInt(document.getElementById('eAge').value) || 0,
+        gender: document.getElementById('eGender').value,
+        blood_group: document.getElementById('eBlood').value,
+        phone: document.getElementById('ePhone').value,
+        status: 'admitted',
+        medical_history: 'Emergency: ' + document.getElementById('eComplaint').value,
+        registered_date: new Date().toISOString().split('T')[0],
+      };
+      await DB.insert('patients', patientData);
+      document.getElementById('emergencyModal').style.display = 'none';
+      Toast.success('Emergency patient admitted successfully!');
+      document.getElementById('eTodayCases').textContent = parseInt(document.getElementById('eTodayCases').textContent) + 1;
+    } catch (err) { Toast.error('Admission failed: ' + err.message); }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    Layout.init();
+    loadEmergency();
+    initAdmitForm();
+  });
+</script>
+</body>
+</html>

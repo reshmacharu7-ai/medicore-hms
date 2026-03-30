@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bed Management – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+let beds = [], patients = [], selectedBed = null;
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+  document.getElementById('app').innerHTML = renderLayout('Bed Management','beds') + `
+  <div class="page-content fade-page">
+    <div class="page-header">
+      <div class="page-header-left"><h2>Bed Management</h2><p>Monitor and allocate hospital beds in real-time</p></div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" onclick="openModal('addBedModal')">➕ Add Bed</button>
+        <button class="btn btn-primary" onclick="openModal('allocateModal')">🛏️ Allocate Bed</button>
+      </div>
+    </div>
+
+    <!-- Bed Stats -->
+    <div class="beds-stats">
+      <div class="bed-stat total"><div class="bed-count" id="bedTotal">0</div><div class="bed-label">Total Beds</div></div>
+      <div class="bed-stat available"><div class="bed-count" id="bedAvail">0</div><div class="bed-label">🟢 Available</div></div>
+      <div class="bed-stat occupied"><div class="bed-count" id="bedOcc">0</div><div class="bed-label">🔴 Occupied</div></div>
+      <div class="bed-stat cleaning"><div class="bed-count" id="bedClean">0</div><div class="bed-label">🟡 Cleaning</div></div>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="chart-card" style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="chart-card-title">Overall Occupancy</div>
+        <div style="font-size:15px;font-weight:700;color:var(--primary)" id="occupancyPct">0%</div>
+      </div>
+      <div class="progress-bar-wrap" style="height:14px;border-radius:7px">
+        <div class="progress-bar" id="occupancyBar" style="width:0%;background:linear-gradient(90deg,#10b981,#ef4444)"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--text-muted)">
+        <span>0% Empty</span><span id="occupancyLabel">Calculating...</span><span>100% Full</span>
+      </div>
+    </div>
+
+    <!-- Ward Sections -->
+    <div id="wardSections"></div>
+  </div>
+
+  <!-- Allocate Modal -->
+  <div class="modal-overlay" id="allocateModal">
+    <div class="modal">
+      <div class="modal-header"><h3>🛏️ Allocate Bed</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Select Bed *</label>
+          <select class="form-control" id="allBed" required><option value="">Choose available bed...</option></select>
+        </div>
+        <div class="form-group"><label>Select Patient *</label>
+          <select class="form-control" id="allPatient" required><option value="">Choose patient...</option></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Admission Date</label><input type="date" class="form-control" id="allDate" value="${new Date().toISOString().split('T')[0]}"></div>
+          <div class="form-group"><label>Expected Discharge</label><input type="date" class="form-control" id="allDischarge"></div>
+        </div>
+        <div class="form-group"><label>Reason for Admission</label><textarea class="form-control" id="allReason" rows="2" placeholder="Diagnosis, reason..."></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('allocateModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="allocateBed()">✅ Allocate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bed Detail Modal -->
+  <div class="modal-overlay" id="bedDetailModal">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header"><h3>Bed Details</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body" id="bedDetailContent"></div>
+      <div class="modal-footer" id="bedDetailActions"></div>
+    </div>
+  </div>
+
+  <!-- Add Bed Modal -->
+  <div class="modal-overlay" id="addBedModal">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header"><h3>Add New Bed</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group"><label>Bed Number *</label><input class="form-control" id="newBedNum" placeholder="A-101"></div>
+          <div class="form-group"><label>Ward *</label>
+            <select class="form-control" id="newBedWard">
+              <option value="General">General</option><option value="ICU">ICU</option><option value="Emergency">Emergency</option>
+              <option value="Pediatric">Pediatric</option><option value="Maternity">Maternity</option><option value="Private">Private</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Floor</label><input type="number" class="form-control" id="newBedFloor" placeholder="1" min="1"></div>
+          <div class="form-group"><label>Daily Rate ($)</label><input type="number" class="form-control" id="newBedRate" placeholder="200"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('addBedModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="addBed()">➕ Add Bed</button>
+      </div>
+    </div>
+  </div>`;
+  initCommon();
+  await Promise.all([loadBeds(), loadPatientList()]);
+  subscribeToTable('beds', () => loadBeds());
+})();
+
+async function loadBeds() {
+  const { data } = await db.from('beds').select('*').order('ward').order('bed_number');
+  beds = data || [];
+  updateStats();
+  renderWards();
+  populateBedDropdown();
+}
+
+async function loadPatientList() {
+  const { data } = await db.from('patients').select('id,full_name,first_name,last_name').eq('status','active');
+  patients = data || [];
+  const sel = document.getElementById('allPatient');
+  sel.innerHTML = '<option value="">Choose patient...</option>' + patients.map(p => `<option value="${p.id}">${p.full_name||`${p.first_name} ${p.last_name}`}</option>`).join('');
+}
+
+function updateStats() {
+  const total = beds.length;
+  const avail = beds.filter(b=>b.status==='available').length;
+  const occ = beds.filter(b=>b.status==='occupied').length;
+  const clean = beds.filter(b=>b.status==='cleaning').length;
+  animateCounter(document.getElementById('bedTotal'), total);
+  animateCounter(document.getElementById('bedAvail'), avail);
+  animateCounter(document.getElementById('bedOcc'), occ);
+  animateCounter(document.getElementById('bedClean'), clean);
+  const pct = total > 0 ? Math.round((occ/total)*100) : 0;
+  document.getElementById('occupancyPct').textContent = pct + '%';
+  document.getElementById('occupancyBar').style.width = pct + '%';
+  document.getElementById('occupancyLabel').textContent = `${occ}/${total} beds occupied`;
+}
+
+function renderWards() {
+  const wards = [...new Set(beds.map(b=>b.ward||'General'))];
+  const container = document.getElementById('wardSections');
+  container.innerHTML = wards.map(ward => {
+    const wardBeds = beds.filter(b=>(b.ward||'General')===ward);
+    const wAvail = wardBeds.filter(b=>b.status==='available').length;
+    const wIcons = { ICU:'🏥', Emergency:'🚑', General:'🛏️', Pediatric:'👶', Maternity:'🤱', Private:'⭐' };
+    return `<div class="beds-section">
+      <div class="beds-section-title">
+        ${wIcons[ward]||'🛏️'} ${ward} Ward
+        <span class="badge badge-${wAvail>0?'success':'danger'}" style="margin-left:8px">${wAvail}/${wardBeds.length} available</span>
+      </div>
+      <div class="beds-grid">
+        ${wardBeds.map(b => `
+          <div class="bed-cell ${b.status||'available'}" onclick="showBedDetail('${b.id}')" title="${b.status==='occupied'?'Patient: '+(b.patient_name||''):'Click to manage'}">
+            <span class="bed-ico">${b.status==='available'?'🟢':b.status==='occupied'?'🔴':'🟡'}</span>
+            <span class="bed-num">${b.bed_number||b.id}</span>
+            <span style="font-size:9px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px">${b.status==='occupied'?(b.patient_name||'Occupied').split(' ')[0]:b.status}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function populateBedDropdown() {
+  const sel = document.getElementById('allBed');
+  const availBeds = beds.filter(b=>b.status==='available');
+  sel.innerHTML = '<option value="">Choose available bed...</option>' + availBeds.map(b => `<option value="${b.id}">${b.bed_number} — ${b.ward||'General'}</option>`).join('');
+}
+
+function showBedDetail(id) {
+  const b = beds.find(x=>x.id==id); if(!b) return;
+  const statusColors = {available:'success',occupied:'danger',cleaning:'warning'};
+  document.getElementById('bedDetailContent').innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:48px">${b.status==='available'?'🟢':b.status==='occupied'?'🔴':'🟡'}</div>
+      <div style="font-size:22px;font-weight:700;margin:8px 0">${b.bed_number}</div>
+      <span class="badge badge-${statusColors[b.status]||'muted'}" style="font-size:14px;padding:6px 16px">${b.status||'available'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="padding:12px;background:var(--bg-input);border-radius:10px"><div style="font-size:11px;color:var(--text-muted)">WARD</div><div style="font-weight:600;margin-top:4px">${b.ward||'General'}</div></div>
+      <div style="padding:12px;background:var(--bg-input);border-radius:10px"><div style="font-size:11px;color:var(--text-muted)">FLOOR</div><div style="font-weight:600;margin-top:4px">${b.floor||1}</div></div>
+      <div style="padding:12px;background:var(--bg-input);border-radius:10px"><div style="font-size:11px;color:var(--text-muted)">DAILY RATE</div><div style="font-weight:600;margin-top:4px">$${b.daily_rate||0}/day</div></div>
+      ${b.status==='occupied'?`<div style="padding:12px;background:var(--bg-input);border-radius:10px"><div style="font-size:11px;color:var(--text-muted)">PATIENT</div><div style="font-weight:600;margin-top:4px">${b.patient_name||'—'}</div></div>`:''}
+    </div>
+    ${b.admission_date?`<div style="margin-top:12px;padding:10px;background:rgba(14,165,233,0.08);border-radius:10px;font-size:13px"><span style="color:var(--text-muted)">Admitted: </span>${formatDate(b.admission_date)}</div>`:''}
+  `;
+  selectedBed = b;
+  const actionsEl = document.getElementById('bedDetailActions');
+  if (b.status === 'occupied') {
+    actionsEl.innerHTML = `
+      <button class="btn btn-secondary" onclick="closeModal('bedDetailModal')">Close</button>
+      <button class="btn btn-warning" onclick="setBedStatus('${b.id}','cleaning');closeModal('bedDetailModal')">🟡 Set Cleaning</button>
+      <button class="btn btn-success" onclick="dischargePatient('${b.id}')">🚪 Discharge</button>`;
+  } else if (b.status === 'cleaning') {
+    actionsEl.innerHTML = `
+      <button class="btn btn-secondary" onclick="closeModal('bedDetailModal')">Close</button>
+      <button class="btn btn-success" onclick="setBedStatus('${b.id}','available');closeModal('bedDetailModal')">✅ Mark Available</button>`;
+  } else {
+    actionsEl.innerHTML = `
+      <button class="btn btn-secondary" onclick="closeModal('bedDetailModal')">Close</button>
+      <button class="btn btn-warning" onclick="setBedStatus('${b.id}','cleaning');closeModal('bedDetailModal')">🟡 Set Cleaning</button>
+      <button class="btn btn-primary" onclick="closeModal('bedDetailModal');document.getElementById('allBed').value='${b.id}';openModal('allocateModal')">🛏️ Allocate</button>`;
+  }
+  openModal('bedDetailModal');
+}
+
+async function setBedStatus(id, status) {
+  const { error } = await db.from('beds').update({ status, patient_id:null, patient_name:null }).eq('id', id);
+  if (error) { toast('Error','error'); return; }
+  toast(`Bed marked as ${status}`, 'success'); await loadBeds();
+}
+
+async function dischargePatient(bedId) {
+  confirm('Discharge patient from this bed?', async () => {
+    const { error } = await db.from('beds').update({ status:'cleaning', patient_id:null, patient_name:null, admission_date:null }).eq('id', bedId);
+    if (error) { toast('Error','error'); return; }
+    toast('Patient discharged, bed set to cleaning!', 'success'); closeModal('bedDetailModal'); await loadBeds();
+  });
+}
+
+async function allocateBed() {
+  const bedId = document.getElementById('allBed').value;
+  const patId = document.getElementById('allPatient').value;
+  const date = document.getElementById('allDate').value;
+  if (!bedId||!patId) { toast('Please select bed and patient','warning'); return; }
+  const pat = patients.find(p=>p.id==patId);
+  const payload = { status:'occupied', patient_id:patId, patient_name:pat?.full_name||`${pat?.first_name} ${pat?.last_name}`, admission_date:date, expected_discharge:document.getElementById('allDischarge').value };
+  const { error } = await db.from('beds').update(payload).eq('id', bedId);
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast('Bed allocated successfully!','success'); closeModal('allocateModal'); await loadBeds();
+}
+
+async function addBed() {
+  const num = document.getElementById('newBedNum').value.trim();
+  const ward = document.getElementById('newBedWard').value;
+  if (!num) { toast('Bed number required','warning'); return; }
+  const { error } = await db.from('beds').insert({ bed_number:num, ward, floor:parseInt(document.getElementById('newBedFloor').value)||1, daily_rate:parseFloat(document.getElementById('newBedRate').value)||200, status:'available', created_at:new Date().toISOString() });
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast('Bed added!','success'); closeModal('addBedModal'); await loadBeds();
+}
+</script>
+</body>
+</html>

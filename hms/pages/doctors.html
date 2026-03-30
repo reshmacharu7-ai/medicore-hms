@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Doctors – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+let doctors = [];
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+  document.getElementById('app').innerHTML = renderLayout('Doctors','doctors') + `
+  <div class="page-content fade-page">
+    <div class="page-header">
+      <div class="page-header-left"><h2>Doctor Management</h2><p>Manage all medical staff and specialists</p></div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" id="viewToggle" onclick="toggleView()">🔲 Card View</button>
+        <button class="btn btn-primary" onclick="openAddDoc()">➕ Add Doctor</button>
+      </div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="stat-card blue"><div class="stat-icon">👨‍⚕️</div><div class="stat-info"><div class="stat-value" id="dTotal">0</div><div class="stat-label">Total Doctors</div></div></div>
+      <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-info"><div class="stat-value" id="dAvail">0</div><div class="stat-label">Available</div></div></div>
+      <div class="stat-card orange"><div class="stat-icon">📅</div><div class="stat-info"><div class="stat-value" id="dBusy">0</div><div class="stat-label">On Duty</div></div></div>
+      <div class="stat-card purple"><div class="stat-icon">🎓</div><div class="stat-info"><div class="stat-value" id="dSpecs">0</div><div class="stat-label">Specializations</div></div></div>
+    </div>
+    <div id="tableView">
+      <div class="table-wrap">
+        <div class="table-header">
+          <div class="table-title">All Doctors</div>
+          <div class="table-filters">
+            <div class="search-input"><span>🔍</span><input type="text" placeholder="Search doctors..." oninput="searchDocs(this.value)"></div>
+            <select class="filter-select" onchange="filterDocs(this.value)">
+              <option value="">All Specializations</option>
+              <option value="Cardiology">Cardiology</option><option value="Neurology">Neurology</option>
+              <option value="Orthopedics">Orthopedics</option><option value="Pediatrics">Pediatrics</option>
+              <option value="General">General Medicine</option><option value="Surgery">Surgery</option>
+            </select>
+          </div>
+        </div>
+        <div style="overflow-x:auto"><table>
+          <thead><tr><th>Doctor</th><th>Specialization</th><th>Contact</th><th>Availability</th><th>Patients</th><th>Actions</th></tr></thead>
+          <tbody id="docsTable"></tbody>
+        </table></div>
+        <div class="pagination" id="docPag"><div class="pagination-info"></div><div class="pagination-controls"></div></div>
+      </div>
+    </div>
+    <div id="cardView" style="display:none">
+      <div class="grid-auto" id="docCards"></div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="docModal">
+    <div class="modal">
+      <div class="modal-header"><h3 id="docModalTitle">Add Doctor</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editDocId">
+        <div class="form-row">
+          <div class="form-group"><label>First Name *</label><input class="form-control" id="dFirst" placeholder="Dr. John" required></div>
+          <div class="form-group"><label>Last Name *</label><input class="form-control" id="dLast" placeholder="Smith" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Specialization *</label>
+            <select class="form-control" id="dSpec" required><option value="">Select</option>
+              <option>Cardiology</option><option>Neurology</option><option>Orthopedics</option>
+              <option>Pediatrics</option><option>General Medicine</option><option>Surgery</option>
+              <option>Dermatology</option><option>Ophthalmology</option><option>Gynecology</option><option>Oncology</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Qualification</label><input class="form-control" id="dQual" placeholder="MBBS, MD"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Phone *</label><input class="form-control" id="dPhone" placeholder="+1 234 567 8900"></div>
+          <div class="form-group"><label>Email *</label><input type="email" class="form-control" id="dEmail" placeholder="doctor@hospital.com"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Availability</label>
+            <select class="form-control" id="dAvailStatus"><option value="available">Available</option><option value="busy">Busy</option><option value="off">Off Duty</option></select>
+          </div>
+          <div class="form-group"><label>Experience (years)</label><input type="number" class="form-control" id="dExp" placeholder="10" min="0"></div>
+        </div>
+        <div class="form-group"><label>Work Schedule</label><input class="form-control" id="dSchedule" placeholder="Mon-Fri, 9AM-5PM"></div>
+        <div class="form-group"><label>Consultation Fee ($)</label><input type="number" class="form-control" id="dFee" placeholder="150"></div>
+        <div class="form-group"><label>Bio / Notes</label><textarea class="form-control" id="dBio" rows="2" placeholder="About this doctor..."></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('docModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDoctor()">💾 Save Doctor</button>
+      </div>
+    </div>
+  </div>`;
+  initCommon();
+  await loadDoctors();
+})();
+
+let isCardView = false;
+function toggleView() {
+  isCardView = !isCardView;
+  document.getElementById('tableView').style.display = isCardView ? 'none' : 'block';
+  document.getElementById('cardView').style.display = isCardView ? 'block' : 'none';
+  document.getElementById('viewToggle').textContent = isCardView ? '📋 Table View' : '🔲 Card View';
+  if (isCardView) renderCards();
+}
+
+async function loadDoctors() {
+  const { data } = await db.from('doctors').select('*').order('created_at',{ascending:false});
+  doctors = data || [];
+  const specs = new Set(doctors.map(d=>d.specialization).filter(Boolean));
+  animateCounter(document.getElementById('dTotal'), doctors.length);
+  animateCounter(document.getElementById('dAvail'), doctors.filter(d=>d.availability==='available').length);
+  animateCounter(document.getElementById('dBusy'), doctors.filter(d=>d.availability==='busy').length);
+  animateCounter(document.getElementById('dSpecs'), specs.size);
+  paginators['doc'] = new Paginator({ id:'doc', data:doctors, perPage:10, tableBody:document.getElementById('docsTable'), paginationEl:document.getElementById('docPag'), renderRow });
+  paginators['doc'].id = 'doc';
+}
+
+function renderRow(d) {
+  const n = `Dr. ${d.full_name||`${d.first_name||''} ${d.last_name||''}`.trim()}`;
+  const ini = getInitials(n);
+  const av = {available:'success',busy:'warning',off:'muted'};
+  return `<tr>
+    <td><div style="display:flex;align-items:center;gap:10px">
+      <div class="avatar-initials" style="width:36px;height:36px;font-size:13px;background:${randomGradient(ini)};flex-shrink:0">${ini}</div>
+      <div><div style="font-weight:600">${n}</div><div style="font-size:12px;color:var(--text-muted)">${d.qualification||d.email||'—'}</div></div>
+    </div></td>
+    <td><span class="badge badge-primary">${d.specialization||'—'}</span></td>
+    <td><div>${d.phone||'—'}</div><div style="font-size:12px;color:var(--text-muted)">${d.email||''}</div></td>
+    <td><span class="badge badge-${av[d.availability]||'muted'}">${d.availability||'available'}</span></td>
+    <td><span style="font-weight:600">${d.patient_count||0}</span></td>
+    <td><div style="display:flex;gap:6px">
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="editDoc('${d.id}')" title="Edit">✏️</button>
+      <button class="btn btn-sm btn-danger btn-icon" onclick="delDoc('${d.id}')" title="Delete">🗑️</button>
+    </div></td>
+  </tr>`;
+}
+
+function renderCards() {
+  document.getElementById('docCards').innerHTML = doctors.map(d => {
+    const n = `Dr. ${d.full_name||`${d.first_name||''} ${d.last_name||''}`.trim()}`;
+    const ini = getInitials(n);
+    const av = {available:'success',busy:'warning',off:'muted'};
+    return `<div class="doctor-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div class="avatar-initials" style="width:52px;height:52px;font-size:18px;border-radius:14px;background:${randomGradient(ini)};flex-shrink:0">${ini}</div>
+        <div><div style="font-weight:700;font-size:15px">${n}</div><div style="color:var(--text-secondary);font-size:13px">${d.specialization||'—'}</div></div>
+      </div>
+      <div class="card-meta">
+        <div class="meta-item"><span class="meta-icon">📞</span>${d.phone||'—'}</div>
+        <div class="meta-item"><span class="meta-icon">📧</span>${d.email||'—'}</div>
+        <div class="meta-item"><span class="meta-icon">🕒</span>${d.schedule||'Schedule not set'}</div>
+        <div class="meta-item"><span class="meta-icon">💰</span>$${d.consultation_fee||0} consultation fee</div>
+      </div>
+      <div class="card-actions">
+        <span class="badge badge-${av[d.availability]||'muted'}" style="margin-right:auto">${d.availability||'available'}</span>
+        <button class="btn btn-sm btn-secondary" onclick="editDoc('${d.id}')">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="delDoc('${d.id}')">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function searchDocs(q) { paginators['doc']?.filter(d => { const n=(d.full_name||'').toLowerCase()+(d.first_name||'').toLowerCase(); return n.includes(q.toLowerCase())||(d.specialization||'').toLowerCase().includes(q.toLowerCase()); }); }
+function filterDocs(spec) { paginators['doc']?.filter(d => !spec || d.specialization===spec); }
+
+function openAddDoc() {
+  ['editDocId','dFirst','dLast','dPhone','dEmail','dQual','dExp','dSchedule','dFee','dBio'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
+  document.getElementById('dSpec').value=''; document.getElementById('dAvailStatus').value='available';
+  document.getElementById('docModalTitle').textContent='Add Doctor'; openModal('docModal');
+}
+
+async function saveDoctor() {
+  const id = document.getElementById('editDocId').value;
+  const first = document.getElementById('dFirst').value.trim();
+  const last = document.getElementById('dLast').value.trim();
+  const spec = document.getElementById('dSpec').value;
+  if (!first||!last||!spec) { toast('Name and specialization required','warning'); return; }
+  const payload = { full_name:`${first} ${last}`, first_name:first, last_name:last, specialization:spec, qualification:document.getElementById('dQual').value, phone:document.getElementById('dPhone').value, email:document.getElementById('dEmail').value, availability:document.getElementById('dAvailStatus').value, experience:parseInt(document.getElementById('dExp').value)||0, schedule:document.getElementById('dSchedule').value, consultation_fee:parseFloat(document.getElementById('dFee').value)||0, bio:document.getElementById('dBio').value };
+  const { error } = id ? await db.from('doctors').update(payload).eq('id',id) : await db.from('doctors').insert({...payload,created_at:new Date().toISOString()});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast(id?'Doctor updated!':'Doctor added!','success'); closeModal('docModal'); await loadDoctors();
+}
+
+function editDoc(id) {
+  const d = doctors.find(x=>x.id==id); if(!d) return;
+  document.getElementById('editDocId').value=d.id;
+  document.getElementById('dFirst').value=d.first_name||d.full_name?.split(' ')[0]||'';
+  document.getElementById('dLast').value=d.last_name||d.full_name?.split(' ').slice(1).join(' ')||'';
+  document.getElementById('dSpec').value=d.specialization||'';
+  document.getElementById('dQual').value=d.qualification||'';
+  document.getElementById('dPhone').value=d.phone||'';
+  document.getElementById('dEmail').value=d.email||'';
+  document.getElementById('dAvailStatus').value=d.availability||'available';
+  document.getElementById('dExp').value=d.experience||'';
+  document.getElementById('dSchedule').value=d.schedule||'';
+  document.getElementById('dFee').value=d.consultation_fee||'';
+  document.getElementById('dBio').value=d.bio||'';
+  document.getElementById('docModalTitle').textContent='Edit Doctor';
+  openModal('docModal');
+}
+
+async function delDoc(id) {
+  confirm('Delete this doctor?', async () => {
+    const { error } = await db.from('doctors').delete().eq('id',id);
+    if (error) { toast('Delete failed','error'); return; }
+    toast('Doctor deleted','success'); await loadDoctors();
+  });
+}
+</script>
+</body>
+</html>

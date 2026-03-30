@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Appointments – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+let appointments = [], doctors = [], patients = [];
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+  document.getElementById('app').innerHTML = renderLayout('Appointments','appointments') + `
+  <div class="page-content fade-page">
+    <div class="page-header">
+      <div class="page-header-left"><h2>Appointments</h2><p>Schedule and manage patient appointments</p></div>
+      <div class="page-actions">
+        <button class="btn btn-primary" onclick="openModal('apptModal')">➕ Book Appointment</button>
+      </div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="stat-card blue"><div class="stat-icon">📅</div><div class="stat-info"><div class="stat-value" id="aTotal">0</div><div class="stat-label">Total</div></div></div>
+      <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-info"><div class="stat-value" id="aConf">0</div><div class="stat-label">Confirmed</div></div></div>
+      <div class="stat-card orange"><div class="stat-icon">⏳</div><div class="stat-info"><div class="stat-value" id="aPend">0</div><div class="stat-label">Pending</div></div></div>
+      <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-info"><div class="stat-value" id="aCanc">0</div><div class="stat-label">Cancelled</div></div></div>
+    </div>
+    <div class="tab-row">
+      <button class="tab-btn active" onclick="filterByStatus('',this)">All</button>
+      <button class="tab-btn" onclick="filterByStatus('confirmed',this)">Confirmed</button>
+      <button class="tab-btn" onclick="filterByStatus('pending',this)">Pending</button>
+      <button class="tab-btn" onclick="filterByStatus('cancelled',this)">Cancelled</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Appointment List</div>
+        <div class="table-filters">
+          <div class="search-input"><span>🔍</span><input type="text" placeholder="Search..." oninput="searchAppts(this.value)"></div>
+          <input type="date" class="filter-select" id="filterDate" onchange="filterByDate(this.value)" title="Filter by date">
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Patient</th><th>Doctor</th><th>Date & Time</th><th>Type</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
+        <tbody id="apptTable"></tbody>
+      </table></div>
+      <div class="pagination" id="apptPag"><div class="pagination-info"></div><div class="pagination-controls"></div></div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="apptModal">
+    <div class="modal">
+      <div class="modal-header"><h3 id="apptModalTitle">Book Appointment</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editApptId">
+        <div class="form-group"><label>Patient *</label>
+          <select class="form-control" id="apptPatient" required><option value="">Select patient...</option></select>
+        </div>
+        <div class="form-group"><label>Doctor *</label>
+          <select class="form-control" id="apptDoctor" required><option value="">Select doctor...</option></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Date *</label><input type="date" class="form-control" id="apptDate" required></div>
+          <div class="form-group"><label>Time *</label><input type="time" class="form-control" id="apptTime" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Type</label>
+            <select class="form-control" id="apptType">
+              <option value="consultation">Consultation</option><option value="follow-up">Follow-up</option>
+              <option value="emergency">Emergency</option><option value="surgery">Surgery</option><option value="checkup">Check-up</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Status</label>
+            <select class="form-control" id="apptStatus"><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="cancelled">Cancelled</option><option value="completed">Completed</option></select>
+          </div>
+        </div>
+        <div class="form-group"><label>Notes</label><textarea class="form-control" id="apptNotes" rows="2" placeholder="Additional notes..."></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('apptModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveAppt()">💾 Save Appointment</button>
+      </div>
+    </div>
+  </div>`;
+  initCommon();
+  await Promise.all([loadAppointments(), loadPatientOptions(), loadDoctorOptions()]);
+  subscribeToTable('appointments', () => loadAppointments());
+})();
+
+let statusFilter = '';
+async function loadAppointments() {
+  const { data } = await db.from('appointments').select('*').order('date',{ascending:false});
+  appointments = data || [];
+  animateCounter(document.getElementById('aTotal'), appointments.length);
+  animateCounter(document.getElementById('aConf'), appointments.filter(a=>a.status==='confirmed').length);
+  animateCounter(document.getElementById('aPend'), appointments.filter(a=>a.status==='pending').length);
+  animateCounter(document.getElementById('aCanc'), appointments.filter(a=>a.status==='cancelled').length);
+  const badge = document.getElementById('apptBadge');
+  if (badge) badge.textContent = appointments.filter(a=>a.status==='pending').length;
+  paginators['appt'] = new Paginator({ id:'appt', data:appointments, perPage:10, tableBody:document.getElementById('apptTable'), paginationEl:document.getElementById('apptPag'), renderRow });
+  paginators['appt'].id = 'appt';
+  if (statusFilter) paginators['appt'].filter(a => a.status === statusFilter);
+}
+
+async function loadPatientOptions() {
+  const { data } = await db.from('patients').select('id,full_name,first_name,last_name');
+  patients = data || [];
+  const sel = document.getElementById('apptPatient');
+  sel.innerHTML = '<option value="">Select patient...</option>' + patients.map(p => `<option value="${p.id}">${p.full_name||`${p.first_name} ${p.last_name}`}</option>`).join('');
+}
+
+async function loadDoctorOptions() {
+  const { data } = await db.from('doctors').select('id,full_name,first_name,last_name,specialization');
+  doctors = data || [];
+  const sel = document.getElementById('apptDoctor');
+  sel.innerHTML = '<option value="">Select doctor...</option>' + doctors.map(d => `<option value="${d.id}">Dr. ${d.full_name||`${d.first_name} ${d.last_name}`} (${d.specialization||'General'})</option>`).join('');
+}
+
+function renderRow(a) {
+  const sm = {confirmed:'success',pending:'warning',cancelled:'danger',completed:'info'};
+  return `<tr>
+    <td><div style="font-weight:600">${a.patient_name||'—'}</div></td>
+    <td>Dr. ${a.doctor_name||'—'}</td>
+    <td><div style="font-weight:600">${formatDate(a.date)}</div><div style="font-size:12px;color:var(--text-muted)">${a.time||'—'}</div></td>
+    <td><span class="badge badge-muted">${a.type||'consultation'}</span></td>
+    <td><span class="badge badge-${sm[a.status]||'muted'}"><span class="badge-dot"></span>${a.status||'pending'}</span></td>
+    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text-secondary)">${a.notes||'—'}</td>
+    <td><div style="display:flex;gap:6px">
+      ${a.status!=='cancelled'&&a.status!=='completed'?`<button class="btn btn-sm btn-success btn-icon" onclick="confirmAppt('${a.id}')" title="Confirm">✅</button>`:''}
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="editAppt('${a.id}')" title="Edit">✏️</button>
+      <button class="btn btn-sm btn-danger btn-icon" onclick="cancelAppt('${a.id}')" title="Cancel">❌</button>
+    </div></td>
+  </tr>`;
+}
+
+function filterByStatus(status, btn) {
+  statusFilter = status;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  paginators['appt']?.filter(a => !status || a.status === status);
+}
+function searchAppts(q) { paginators['appt']?.filter(a => (a.patient_name||'').toLowerCase().includes(q.toLowerCase())||(a.doctor_name||'').toLowerCase().includes(q.toLowerCase())); }
+function filterByDate(d) { paginators['appt']?.filter(a => !d || a.date === d); }
+
+async function saveAppt() {
+  const id = document.getElementById('editApptId').value;
+  const patId = document.getElementById('apptPatient').value;
+  const docId = document.getElementById('apptDoctor').value;
+  const date = document.getElementById('apptDate').value;
+  const time = document.getElementById('apptTime').value;
+  if (!patId||!docId||!date||!time) { toast('Please fill required fields','warning'); return; }
+  const pat = patients.find(p=>p.id==patId);
+  const doc = doctors.find(d=>d.id==docId);
+  const payload = { patient_id:patId, doctor_id:docId, patient_name:pat?.full_name||`${pat?.first_name} ${pat?.last_name}`, doctor_name:doc?.full_name||`${doc?.first_name} ${doc?.last_name}`, date, time, type:document.getElementById('apptType').value, status:document.getElementById('apptStatus').value, notes:document.getElementById('apptNotes').value };
+  const { error } = id ? await db.from('appointments').update(payload).eq('id',id) : await db.from('appointments').insert({...payload,created_at:new Date().toISOString()});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast(id?'Appointment updated!':'Appointment booked!','success'); closeModal('apptModal'); await loadAppointments();
+}
+
+function editAppt(id) {
+  const a = appointments.find(x=>x.id==id); if(!a) return;
+  document.getElementById('editApptId').value=a.id;
+  document.getElementById('apptPatient').value=a.patient_id||'';
+  document.getElementById('apptDoctor').value=a.doctor_id||'';
+  document.getElementById('apptDate').value=a.date||'';
+  document.getElementById('apptTime').value=a.time||'';
+  document.getElementById('apptType').value=a.type||'consultation';
+  document.getElementById('apptStatus').value=a.status||'pending';
+  document.getElementById('apptNotes').value=a.notes||'';
+  document.getElementById('apptModalTitle').textContent='Edit Appointment';
+  openModal('apptModal');
+}
+
+async function confirmAppt(id) {
+  const { error } = await db.from('appointments').update({status:'confirmed'}).eq('id',id);
+  if (error) { toast('Failed','error'); return; }
+  toast('Appointment confirmed!','success'); await loadAppointments();
+}
+
+async function cancelAppt(id) {
+  confirm('Cancel this appointment?', async () => {
+    const { error } = await db.from('appointments').update({status:'cancelled'}).eq('id',id);
+    if (error) { toast('Failed','error'); return; }
+    toast('Appointment cancelled','warning'); await loadAppointments();
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Billing – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+let bills = [], patients = [];
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+  document.getElementById('app').innerHTML = renderLayout('Billing','billing') + `
+  <div class="page-content fade-page">
+    <div class="page-header">
+      <div class="page-header-left"><h2>Billing & Payments</h2><p>Generate and manage patient bills</p></div>
+      <div class="page-actions">
+        <button class="btn btn-primary" onclick="openModal('billModal')">➕ Generate Bill</button>
+      </div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+      <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-info"><div class="stat-value" id="bRevenue">$0</div><div class="stat-label">Total Revenue</div></div></div>
+      <div class="stat-card blue"><div class="stat-icon">📄</div><div class="stat-info"><div class="stat-value" id="bTotal">0</div><div class="stat-label">Total Bills</div></div></div>
+      <div class="stat-card orange"><div class="stat-icon">⏳</div><div class="stat-info"><div class="stat-value" id="bPending">0</div><div class="stat-label">Pending</div></div></div>
+      <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-info"><div class="stat-value" id="bOverdue">0</div><div class="stat-label">Overdue</div></div></div>
+    </div>
+    <div class="tab-row">
+      <button class="tab-btn active" onclick="filterBills('',this)">All</button>
+      <button class="tab-btn" onclick="filterBills('paid',this)">Paid</button>
+      <button class="tab-btn" onclick="filterBills('pending',this)">Pending</button>
+      <button class="tab-btn" onclick="filterBills('overdue',this)">Overdue</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">All Bills</div>
+        <div class="table-filters">
+          <div class="search-input"><span>🔍</span><input type="text" placeholder="Search bills..." oninput="searchBills(this.value)"></div>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Bill ID</th><th>Patient</th><th>Doctor Fee</th><th>Bed Charges</th><th>Medicines</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+        <tbody id="billsTable"></tbody>
+      </table></div>
+      <div class="pagination" id="billPag"><div class="pagination-info"></div><div class="pagination-controls"></div></div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="billModal">
+    <div class="modal">
+      <div class="modal-header"><h3 id="billModalTitle">Generate Bill</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editBillId">
+        <div class="form-group"><label>Patient *</label>
+          <select class="form-control" id="billPatient" required><option value="">Select patient...</option></select>
+        </div>
+        <div style="background:var(--bg-input);border-radius:14px;padding:18px;margin-bottom:18px">
+          <div style="font-weight:600;margin-bottom:14px;font-size:14px">Bill Items</div>
+          <div class="form-row">
+            <div class="form-group" style="margin-bottom:0"><label>Doctor Consultation Fee ($)</label><input type="number" class="form-control" id="bDocFee" value="0" min="0" oninput="calcTotal()"></div>
+            <div class="form-group" style="margin-bottom:0"><label>Bed Charges ($)</label><input type="number" class="form-control" id="bBedFee" value="0" min="0" oninput="calcTotal()"></div>
+          </div>
+          <div class="form-row" style="margin-top:12px">
+            <div class="form-group" style="margin-bottom:0"><label>Medicines ($)</label><input type="number" class="form-control" id="bMedFee" value="0" min="0" oninput="calcTotal()"></div>
+            <div class="form-group" style="margin-bottom:0"><label>Lab Tests ($)</label><input type="number" class="form-control" id="bLabFee" value="0" min="0" oninput="calcTotal()"></div>
+          </div>
+          <div class="form-row" style="margin-top:12px">
+            <div class="form-group" style="margin-bottom:0"><label>Other Charges ($)</label><input type="number" class="form-control" id="bOtherFee" value="0" min="0" oninput="calcTotal()"></div>
+            <div class="form-group" style="margin-bottom:0"><label>Discount ($)</label><input type="number" class="form-control" id="bDiscount" value="0" min="0" oninput="calcTotal()"></div>
+          </div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:15px;font-weight:600">Total Amount</span>
+            <span style="font-size:22px;font-weight:800;color:var(--primary)" id="billTotalDisplay">$0.00</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Payment Status</label>
+            <select class="form-control" id="billStatus"><option value="pending">Pending</option><option value="paid">Paid</option><option value="overdue">Overdue</option><option value="partial">Partial</option></select>
+          </div>
+          <div class="form-group"><label>Payment Method</label>
+            <select class="form-control" id="billMethod"><option value="cash">Cash</option><option value="card">Credit/Debit Card</option><option value="insurance">Insurance</option><option value="online">Online Transfer</option></select>
+          </div>
+        </div>
+        <div class="form-group"><label>Notes</label><textarea class="form-control" id="billNotes" rows="2" placeholder="Additional notes..."></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('billModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveBill()">💾 Save Bill</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="viewBillModal">
+    <div class="modal" style="max-width:500px">
+      <div class="modal-header"><h3>Invoice Details</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body" id="viewBillContent"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('viewBillModal')">Close</button>
+        <button class="btn btn-primary" onclick="printBill()">🖨️ Print Invoice</button>
+      </div>
+    </div>
+  </div>`;
+  initCommon();
+  await Promise.all([loadBills(), loadPatientOptions()]);
+})();
+
+async function loadBills() {
+  const { data } = await db.from('billing').select('*').order('created_at',{ascending:false});
+  bills = data || [];
+  const totalRev = bills.filter(b=>b.status==='paid').reduce((s,b)=>s+(b.amount||0),0);
+  document.getElementById('bRevenue').textContent = formatCurrency(totalRev);
+  animateCounter(document.getElementById('bTotal'), bills.length);
+  animateCounter(document.getElementById('bPending'), bills.filter(b=>b.status==='pending').length);
+  animateCounter(document.getElementById('bOverdue'), bills.filter(b=>b.status==='overdue').length);
+  paginators['bill'] = new Paginator({ id:'bill', data:bills, perPage:10, tableBody:document.getElementById('billsTable'), paginationEl:document.getElementById('billPag'), renderRow });
+  paginators['bill'].id = 'bill';
+}
+
+async function loadPatientOptions() {
+  const { data } = await db.from('patients').select('id,full_name,first_name,last_name');
+  patients = data || [];
+  const sel = document.getElementById('billPatient');
+  sel.innerHTML = '<option value="">Select patient...</option>' + patients.map(p=>`<option value="${p.id}">${p.full_name||`${p.first_name} ${p.last_name}`}</option>`).join('');
+}
+
+function renderRow(b) {
+  const sm = {paid:'success',pending:'warning',overdue:'danger',partial:'info'};
+  return `<tr>
+    <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--primary)">INV-${String(b.id||'').padStart(4,'0').slice(-4)}</span></td>
+    <td><div style="font-weight:600">${b.patient_name||'—'}</div></td>
+    <td>${formatCurrency(b.doctor_fee)}</td>
+    <td>${formatCurrency(b.bed_charges)}</td>
+    <td>${formatCurrency(b.medicines)}</td>
+    <td><span style="font-weight:700;color:var(--primary)">${formatCurrency(b.amount)}</span></td>
+    <td><span class="badge badge-${sm[b.status]||'muted'}"><span class="badge-dot"></span>${b.status||'pending'}</span></td>
+    <td>${formatDate(b.created_at)}</td>
+    <td><div style="display:flex;gap:6px">
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="viewBill('${b.id}')" title="View">👁️</button>
+      ${b.status!=='paid'?`<button class="btn btn-sm btn-success btn-icon" onclick="markPaid('${b.id}')" title="Mark Paid">✅</button>`:''}
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="editBill('${b.id}')" title="Edit">✏️</button>
+    </div></td>
+  </tr>`;
+}
+
+function calcTotal() {
+  const sum = ['bDocFee','bBedFee','bMedFee','bLabFee','bOtherFee'].reduce((s,id)=>s+(parseFloat(document.getElementById(id).value)||0),0);
+  const disc = parseFloat(document.getElementById('bDiscount').value)||0;
+  document.getElementById('billTotalDisplay').textContent = formatCurrency(Math.max(0,sum-disc));
+}
+
+async function saveBill() {
+  const id = document.getElementById('editBillId').value;
+  const patId = document.getElementById('billPatient').value;
+  if (!patId) { toast('Please select a patient','warning'); return; }
+  const pat = patients.find(p=>p.id==patId);
+  const docFee = parseFloat(document.getElementById('bDocFee').value)||0;
+  const bedFee = parseFloat(document.getElementById('bBedFee').value)||0;
+  const medFee = parseFloat(document.getElementById('bMedFee').value)||0;
+  const labFee = parseFloat(document.getElementById('bLabFee').value)||0;
+  const otherFee = parseFloat(document.getElementById('bOtherFee').value)||0;
+  const discount = parseFloat(document.getElementById('bDiscount').value)||0;
+  const total = Math.max(0, docFee+bedFee+medFee+labFee+otherFee-discount);
+  const payload = { patient_id:patId, patient_name:pat?.full_name||`${pat?.first_name} ${pat?.last_name}`, doctor_fee:docFee, bed_charges:bedFee, medicines:medFee, lab_tests:labFee, other_charges:otherFee, discount, amount:total, status:document.getElementById('billStatus').value, payment_method:document.getElementById('billMethod').value, notes:document.getElementById('billNotes').value };
+  const { error } = id ? await db.from('billing').update(payload).eq('id',id) : await db.from('billing').insert({...payload,created_at:new Date().toISOString()});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast(id?'Bill updated!':'Bill generated!','success'); closeModal('billModal'); await loadBills();
+}
+
+function editBill(id) {
+  const b = bills.find(x=>x.id==id); if(!b) return;
+  document.getElementById('editBillId').value=b.id;
+  document.getElementById('billPatient').value=b.patient_id||'';
+  document.getElementById('bDocFee').value=b.doctor_fee||0;
+  document.getElementById('bBedFee').value=b.bed_charges||0;
+  document.getElementById('bMedFee').value=b.medicines||0;
+  document.getElementById('bLabFee').value=b.lab_tests||0;
+  document.getElementById('bOtherFee').value=b.other_charges||0;
+  document.getElementById('bDiscount').value=b.discount||0;
+  document.getElementById('billStatus').value=b.status||'pending';
+  document.getElementById('billMethod').value=b.payment_method||'cash';
+  document.getElementById('billNotes').value=b.notes||'';
+  document.getElementById('billModalTitle').textContent='Edit Bill';
+  calcTotal(); openModal('billModal');
+}
+
+function viewBill(id) {
+  const b = bills.find(x=>x.id==id); if(!b) return;
+  const sm = {paid:'success',pending:'warning',overdue:'danger',partial:'info'};
+  document.getElementById('viewBillContent').innerHTML = `
+    <div style="background:linear-gradient(135deg,rgba(14,165,233,0.1),rgba(16,185,129,0.1));border-radius:14px;padding:16px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:12px;color:var(--text-muted)">INVOICE</div><div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace">INV-${String(b.id||'').padStart(4,'0').slice(-4)}</div></div>
+        <span class="badge badge-${sm[b.status]||'muted'}" style="font-size:13px;padding:6px 14px">${b.status||'pending'}</span>
+      </div>
+      <div style="margin-top:10px;font-size:15px;font-weight:600">${b.patient_name||'—'}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${formatDate(b.created_at)}</div>
+    </div>
+    <div class="bill-items" style="margin-bottom:16px">
+      ${[['👨‍⚕️ Doctor Consultation',b.doctor_fee],['🛏️ Bed Charges',b.bed_charges],['💊 Medicines',b.medicines],['🔬 Lab Tests',b.lab_tests],['📦 Other Charges',b.other_charges]].filter(([,v])=>v>0).map(([label,val])=>`
+        <div class="bill-item"><span class="item-name">${label}</span><span class="item-amount">${formatCurrency(val)}</span></div>`).join('')}
+      ${b.discount>0?`<div class="bill-item"><span class="item-name" style="color:var(--secondary)">🏷️ Discount</span><span class="item-amount" style="color:var(--secondary)">-${formatCurrency(b.discount)}</span></div>`:''}
+    </div>
+    <div class="bill-total"><span>Total Amount</span><span style="color:var(--primary)">${formatCurrency(b.amount)}</span></div>
+    ${b.payment_method?`<div style="margin-top:12px;font-size:13px;color:var(--text-muted)">Payment Method: <strong style="color:var(--text-primary)">${b.payment_method}</strong></div>`:''}
+    ${b.notes?`<div style="margin-top:8px;font-size:13px;color:var(--text-muted)">${b.notes}</div>`:''}`;
+  openModal('viewBillModal');
+}
+
+async function markPaid(id) {
+  const { error } = await db.from('billing').update({status:'paid',paid_at:new Date().toISOString()}).eq('id',id);
+  if (error) { toast('Error','error'); return; }
+  toast('Payment recorded!','success'); await loadBills();
+}
+
+function filterBills(status, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  paginators['bill']?.filter(b => !status || b.status===status);
+}
+
+function searchBills(q) { paginators['bill']?.filter(b=>(b.patient_name||'').toLowerCase().includes(q.toLowerCase())); }
+
+function printBill() {
+  const content = document.getElementById('viewBillContent').innerHTML;
+  const w = window.open('','_blank'); w.document.write(`<html><head><title>Invoice</title><style>body{font-family:sans-serif;padding:20px}@media print{body{margin:0}}</style></head><body>${content}</body></html>`);
+  w.print();
+}
+</script>
+</body>
+</html>

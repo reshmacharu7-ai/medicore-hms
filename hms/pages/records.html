@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medical Records — MediCore HMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+<div id="sidebar"></div>
+<div class="main-content">
+  <div id="topbar"></div>
+  <div class="page-content" id="pageContent">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Medical Records</h1>
+        <p class="page-subtitle">Upload, manage and view patient medical documents</p>
+      </div>
+      <button class="btn-primary" onclick="openUploadModal()">📤 Upload Record</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card"><div class="stat-icon" style="background:linear-gradient(135deg,#6c63ff,#a78bfa)">📁</div><div class="stat-info"><span class="stat-value" id="totalRecords">0</span><span class="stat-label">Total Records</span></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:linear-gradient(135deg,#00d4aa,#0099cc)">🩺</div><div class="stat-info"><span class="stat-value" id="labReports">0</span><span class="stat-label">Lab Reports</span></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)">🔬</div><div class="stat-info"><span class="stat-value" id="xrayScans">0</span><span class="stat-label">X-Ray/Scans</span></div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:linear-gradient(135deg,#ff6b7a,#ff9a9e)">💊</div><div class="stat-info"><span class="stat-value" id="prescriptions">0</span><span class="stat-label">Prescriptions</span></div></div>
+    </div>
+
+    <!-- Filters -->
+    <div class="glass-card" style="padding:20px;margin-bottom:24px">
+      <div class="filter-row">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" placeholder="Search by patient name, record type..." id="searchInput" oninput="filterRecords()">
+        </div>
+        <select class="filter-select" id="typeFilter" onchange="filterRecords()">
+          <option value="">All Types</option>
+          <option value="lab_report">Lab Report</option>
+          <option value="prescription">Prescription</option>
+          <option value="xray">X-Ray</option>
+          <option value="mri_ct">MRI/CT Scan</option>
+          <option value="discharge_summary">Discharge Summary</option>
+          <option value="other">Other</option>
+        </select>
+        <select class="filter-select" id="patientFilter" onchange="filterRecords()">
+          <option value="">All Patients</option>
+        </select>
+        <input type="date" class="filter-select" id="dateFilter" onchange="filterRecords()">
+      </div>
+    </div>
+
+    <!-- Records Grid -->
+    <div id="recordsGrid" class="records-grid"></div>
+
+    <!-- Pagination -->
+    <div id="pagination" class="pagination"></div>
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modalTitle">📤 Upload Medical Record</h3>
+      <button class="modal-close" onclick="closeModal('uploadModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Patient *</label>
+          <select id="recPatient" required>
+            <option value="">Select Patient</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Record Type *</label>
+          <select id="recType" required>
+            <option value="">Select Type</option>
+            <option value="lab_report">Lab Report</option>
+            <option value="prescription">Prescription</option>
+            <option value="xray">X-Ray</option>
+            <option value="mri_ct">MRI/CT Scan</option>
+            <option value="discharge_summary">Discharge Summary</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Record Title *</label>
+        <input type="text" id="recTitle" placeholder="e.g. Blood Test Results - March 2026">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="recDate">
+        </div>
+        <div class="form-group">
+          <label>Doctor</label>
+          <select id="recDoctor">
+            <option value="">Select Doctor</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes / Description</label>
+        <textarea id="recNotes" placeholder="Add notes or findings..." rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Upload File (PDF / Image)</label>
+        <div class="file-drop-zone" id="fileDropZone" ondragover="handleDragOver(event)" ondrop="handleDrop(event)" onclick="document.getElementById('fileInput').click()">
+          <div class="file-drop-inner" id="fileDropInner">
+            <span style="font-size:40px">📎</span>
+            <p>Drag & drop or <strong>click to browse</strong></p>
+            <p style="opacity:.6;font-size:13px">Supports PDF, JPG, PNG (max 10MB)</p>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleFileSelect(event)">
+      </div>
+      <div id="editRecId" style="display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('uploadModal')">Cancel</button>
+      <button class="btn-primary" onclick="saveRecord()">💾 Save Record</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Record Modal -->
+<div class="modal-overlay" id="viewModal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3 class="modal-title">📄 Record Details</h3>
+      <button class="modal-close" onclick="closeModal('viewModal')">✕</button>
+    </div>
+    <div class="modal-body" id="viewModalBody"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('viewModal')">Close</button>
+      <button class="btn-primary" onclick="downloadRecord()">⬇️ Download</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.records-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;margin-bottom:24px}
+.record-card{background:var(--glass-bg);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:16px;padding:20px;transition:.3s;cursor:pointer}
+.record-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.2);border-color:var(--accent-1)}
+.record-card-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:14px}
+.record-card-title{font-weight:600;font-size:15px;color:var(--text-primary);margin-bottom:6px;line-height:1.4}
+.record-card-patient{font-size:13px;color:var(--text-secondary);margin-bottom:10px}
+.record-card-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.record-card-actions{display:flex;gap:8px}
+.file-drop-zone{border:2px dashed var(--glass-border);border-radius:12px;padding:32px;text-align:center;cursor:pointer;transition:.3s;color:var(--text-secondary)}
+.file-drop-zone:hover,.file-drop-zone.drag-over{border-color:var(--accent-1);background:rgba(0,212,170,.05);color:var(--text-primary)}
+.file-preview{display:flex;align-items:center;gap:12px;padding:12px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:10px;margin-top:8px}
+.view-detail-row{display:flex;gap:16px;margin-bottom:12px;align-items:flex-start}
+.view-detail-label{width:120px;flex-shrink:0;font-size:13px;color:var(--text-secondary)}
+.view-detail-value{font-size:14px;color:var(--text-primary);font-weight:500}
+.file-preview-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+textarea{width:100%;padding:12px;border-radius:12px;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);font-family:'DM Sans',sans-serif;font-size:14px;resize:vertical;outline:none}
+textarea:focus{border-color:var(--accent-1);box-shadow:0 0 0 3px rgba(0,212,170,.15)}
+</style>
+
+<script src="../js/supabase-config.js"></script>
+<script src="../js/app.js"></script>
+<script>
+AppState.currentPage = 'records';
+let records = [], filteredRecords = [], currentPage = 1, perPage = 9, selectedFile = null, viewingRecord = null;
+
+const typeConfig = {
+  lab_report:   { icon:'🩺', color:'linear-gradient(135deg,#00d4aa,#0099cc)', label:'Lab Report' },
+  prescription: { icon:'💊', color:'linear-gradient(135deg,#6c63ff,#a78bfa)', label:'Prescription' },
+  xray:         { icon:'🔬', color:'linear-gradient(135deg,#f59e0b,#fbbf24)', label:'X-Ray' },
+  mri_ct:       { icon:'🧠', color:'linear-gradient(135deg,#ff6b7a,#ff9a9e)', label:'MRI/CT Scan' },
+  discharge_summary:{ icon:'📋', color:'linear-gradient(135deg,#22c55e,#16a34a)', label:'Discharge Summary' },
+  other:        { icon:'📁', color:'linear-gradient(135deg,#94a3b8,#64748b)', label:'Other' }
+};
+
+async function init() {
+  await Layout.init();
+  await loadData();
+  populateFilters();
+  document.getElementById('recDate').valueAsDate = new Date();
+}
+
+async function loadData() {
+  const patientsData = await DB.fetch('patients', { order: 'name' });
+  const doctorsData = await DB.fetch('doctors', { order: 'name' });
+  records = await DB.fetch('medical_records', { order: 'created_at' });
+
+  // Fill patient dropdowns
+  const patSel = document.getElementById('recPatient');
+  const patFilter = document.getElementById('patientFilter');
+  patSel.innerHTML = '<option value="">Select Patient</option>';
+  patFilter.innerHTML = '<option value="">All Patients</option>';
+  patientsData.forEach(p => {
+    const o = `<option value="${p.id}">${p.name}</option>`;
+    patSel.insertAdjacentHTML('beforeend', o);
+    patFilter.insertAdjacentHTML('beforeend', o);
+  });
+
+  // Fill doctor dropdown
+  const docSel = document.getElementById('recDoctor');
+  docSel.innerHTML = '<option value="">Select Doctor</option>';
+  doctorsData.forEach(d => docSel.insertAdjacentHTML('beforeend', `<option value="${d.id}">Dr. ${d.name}</option>`));
+
+  // Enrich records with patient/doctor names
+  records = records.map(r => ({
+    ...r,
+    patientName: patientsData.find(p => p.id === r.patient_id)?.name || 'Unknown',
+    doctorName: doctorsData.find(d => d.id === r.doctor_id)?.name || null
+  }));
+
+  // If no records exist yet, use mock data
+  if (records.length === 0) {
+    records = generateMockRecords(patientsData, doctorsData);
+  }
+
+  updateStats();
+  filterRecords();
+}
+
+function generateMockRecords(patients, doctors) {
+  const types = ['lab_report','prescription','xray','mri_ct','discharge_summary','other'];
+  const titles = ['Blood Count CBC','MRI Brain Scan','Chest X-Ray Report','Prescription Antibiotics','Discharge Summary','ECG Report','Urine Analysis','CT Abdomen'];
+  const mock = [];
+  for (let i = 0; i < 12; i++) {
+    const p = patients[i % patients.length] || { id: 'p'+i, name: 'Patient ' + i };
+    const d = doctors[i % doctors.length] || { id: 'd'+i, name: 'Doctor ' + i };
+    const t = types[i % types.length];
+    mock.push({
+      id: 'rec'+i, patient_id: p.id, doctor_id: d.id,
+      patientName: p.name, doctorName: d.name,
+      type: t, title: titles[i % titles.length],
+      notes: 'Normal findings. No abnormalities detected.',
+      date: new Date(Date.now() - i * 5 * 86400000).toISOString().split('T')[0],
+      file_url: null, file_name: i % 3 === 0 ? 'report.pdf' : null
+    });
+  }
+  return mock;
+}
+
+function updateStats() {
+  document.getElementById('totalRecords').textContent = records.length;
+  document.getElementById('labReports').textContent = records.filter(r => r.type === 'lab_report').length;
+  document.getElementById('xrayScans').textContent = records.filter(r => ['xray','mri_ct'].includes(r.type)).length;
+  document.getElementById('prescriptions').textContent = records.filter(r => r.type === 'prescription').length;
+}
+
+function populateFilters() {}
+
+function filterRecords() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const type = document.getElementById('typeFilter').value;
+  const patient = document.getElementById('patientFilter').value;
+  const date = document.getElementById('dateFilter').value;
+  filteredRecords = records.filter(r => {
+    const matchQ = !q || r.title?.toLowerCase().includes(q) || r.patientName?.toLowerCase().includes(q);
+    const matchType = !type || r.type === type;
+    const matchPat = !patient || r.patient_id === patient;
+    const matchDate = !date || r.date === date;
+    return matchQ && matchType && matchPat && matchDate;
+  });
+  currentPage = 1;
+  renderRecords();
+}
+
+function renderRecords() {
+  const start = (currentPage - 1) * perPage;
+  const page = filteredRecords.slice(start, start + perPage);
+  const grid = document.getElementById('recordsGrid');
+  if (page.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:12px">📂</div><p>No records found</p></div>';
+  } else {
+    grid.innerHTML = page.map(r => recordCard(r)).join('');
+  }
+  renderPagination('pagination', filteredRecords.length, perPage, currentPage, 'changePage');
+}
+
+function recordCard(r) {
+  const cfg = typeConfig[r.type] || typeConfig.other;
+  return `<div class="record-card" onclick="viewRecord('${r.id}')">
+    <div class="record-card-icon" style="background:${cfg.color}">${cfg.icon}</div>
+    <div class="record-card-title">${r.title}</div>
+    <div class="record-card-patient">👤 ${r.patientName}</div>
+    <div class="record-card-meta">
+      <span class="badge badge-info">${cfg.label}</span>
+      ${r.date ? `<span class="badge" style="background:rgba(255,255,255,.08)">${Utils.formatDate(r.date)}</span>` : ''}
+      ${r.file_name ? `<span class="badge" style="background:rgba(0,212,170,.15);color:var(--accent-1)">📎 File</span>` : ''}
+    </div>
+    <div class="record-card-actions" onclick="event.stopPropagation()">
+      <button class="btn-icon btn-edit" title="Edit" onclick="editRecord('${r.id}')">✏️</button>
+      <button class="btn-icon btn-delete" title="Delete" onclick="deleteRecord('${r.id}')">🗑️</button>
+    </div>
+  </div>`;
+}
+
+function viewRecord(id) {
+  viewingRecord = records.find(r => r.id === id);
+  if (!viewingRecord) return;
+  const cfg = typeConfig[viewingRecord.type] || typeConfig.other;
+  document.getElementById('viewModalBody').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding:16px;background:var(--glass-bg);border-radius:12px;border:1px solid var(--glass-border)">
+      <div style="width:56px;height:56px;border-radius:14px;background:${cfg.color};display:flex;align-items:center;justify-content:center;font-size:28px">${cfg.icon}</div>
+      <div><div style="font-size:17px;font-weight:600;color:var(--text-primary)">${viewingRecord.title}</div><div style="font-size:13px;color:var(--text-secondary);margin-top:4px">${cfg.label}</div></div>
+    </div>
+    <div class="view-detail-row"><span class="view-detail-label">Patient</span><span class="view-detail-value">👤 ${viewingRecord.patientName}</span></div>
+    ${viewingRecord.doctorName ? `<div class="view-detail-row"><span class="view-detail-label">Doctor</span><span class="view-detail-value">👨‍⚕️ Dr. ${viewingRecord.doctorName}</span></div>` : ''}
+    ${viewingRecord.date ? `<div class="view-detail-row"><span class="view-detail-label">Date</span><span class="view-detail-value">📅 ${Utils.formatDate(viewingRecord.date)}</span></div>` : ''}
+    ${viewingRecord.notes ? `<div class="view-detail-row"><span class="view-detail-label">Notes</span><span class="view-detail-value" style="white-space:pre-wrap">${viewingRecord.notes}</span></div>` : ''}
+    ${viewingRecord.file_name ? `<div style="margin-top:16px"><div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Attached File</div><div class="file-preview"><div class="file-preview-icon" style="background:linear-gradient(135deg,#6c63ff,#a78bfa)">📎</div><div><div style="font-weight:500;font-size:14px">${viewingRecord.file_name}</div><div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Click Download to save</div></div></div></div>` : '<div style="margin-top:16px;padding:16px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--glass-border);border-radius:10px">No file attached</div>'}
+  `;
+  document.getElementById('viewModal').classList.add('active');
+}
+
+function downloadRecord() {
+  if (!viewingRecord?.file_url) {
+    Toast.info('No file attached to this record (demo mode)');
+    return;
+  }
+  window.open(viewingRecord.file_url, '_blank');
+}
+
+function openUploadModal() {
+  document.getElementById('uploadModal').classList.add('active');
+  document.getElementById('modalTitle').textContent = '📤 Upload Medical Record';
+  document.getElementById('editRecId').textContent = '';
+  document.getElementById('recTitle').value = '';
+  document.getElementById('recNotes').value = '';
+  document.getElementById('recDate').valueAsDate = new Date();
+  document.getElementById('recType').value = '';
+  document.getElementById('recPatient').value = '';
+  document.getElementById('recDoctor').value = '';
+  selectedFile = null;
+  resetFileZone();
+}
+
+function editRecord(id) {
+  const r = records.find(rec => rec.id === id);
+  if (!r) return;
+  openUploadModal();
+  document.getElementById('modalTitle').textContent = '✏️ Edit Medical Record';
+  document.getElementById('editRecId').textContent = id;
+  document.getElementById('recTitle').value = r.title || '';
+  document.getElementById('recNotes').value = r.notes || '';
+  document.getElementById('recDate').value = r.date || '';
+  document.getElementById('recType').value = r.type || '';
+  document.getElementById('recPatient').value = r.patient_id || '';
+  document.getElementById('recDoctor').value = r.doctor_id || '';
+  if (r.file_name) showFileInfo(r.file_name, null);
+}
+
+async function saveRecord() {
+  const patient = document.getElementById('recPatient').value;
+  const type = document.getElementById('recType').value;
+  const title = document.getElementById('recTitle').value.trim();
+  if (!patient || !type || !title) { Toast.error('Please fill required fields'); return; }
+
+  const editId = document.getElementById('editRecId').textContent;
+  let fileUrl = null, fileName = null;
+
+  // Supabase Storage upload (if configured)
+  if (selectedFile && !SUPABASE_URL.includes('YOUR_PROJECT')) {
+    const path = `records/${patient}/${Date.now()}_${selectedFile.name}`;
+    const { data, error } = await supabase.storage.from('medical-records').upload(path, selectedFile);
+    if (!error) {
+      const { data: urlData } = supabase.storage.from('medical-records').getPublicUrl(path);
+      fileUrl = urlData.publicUrl;
+      fileName = selectedFile.name;
+    }
+  } else if (selectedFile) {
+    fileName = selectedFile.name;
+  }
+
+  const payload = {
+    patient_id: patient,
+    doctor_id: document.getElementById('recDoctor').value || null,
+    type, title,
+    notes: document.getElementById('recNotes').value,
+    date: document.getElementById('recDate').value,
+    file_url: fileUrl,
+    file_name: fileName
+  };
+
+  if (editId) {
+    await DB.update('medical_records', editId, payload);
+    const idx = records.findIndex(r => r.id === editId);
+    if (idx !== -1) records[idx] = { ...records[idx], ...payload };
+    Toast.success('Record updated');
+  } else {
+    const newRec = await DB.insert('medical_records', payload);
+    if (newRec) {
+      records.unshift({ ...payload, id: newRec.id || 'new-'+Date.now(), patientName: document.getElementById('recPatient').options[document.getElementById('recPatient').selectedIndex]?.text || 'Unknown' });
+    }
+    Toast.success('Record uploaded');
+  }
+
+  closeModal('uploadModal');
+  updateStats();
+  filterRecords();
+}
+
+async function deleteRecord(id) {
+  confirmDialog('This will permanently delete the medical record.', async () => {
+    await DB.delete('medical_records', id);
+    records = records.filter(r => r.id !== id);
+    updateStats();
+    filterRecords();
+    Toast.success('Record deleted');
+  });
+}
+
+function handleDragOver(e) { e.preventDefault(); document.getElementById('fileDropZone').classList.add('drag-over'); }
+function handleDrop(e) { e.preventDefault(); document.getElementById('fileDropZone').classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) processFile(f); }
+function handleFileSelect(e) { const f = e.target.files[0]; if (f) processFile(f); }
+function processFile(f) {
+  if (f.size > 10 * 1024 * 1024) { Toast.error('File too large. Max 10MB.'); return; }
+  selectedFile = f;
+  showFileInfo(f.name, f.size);
+}
+function showFileInfo(name, size) {
+  const zone = document.getElementById('fileDropInner');
+  const sizeStr = size ? ` (${(size/1024/1024).toFixed(2)} MB)` : '';
+  zone.innerHTML = `<span style="font-size:32px">${name.endsWith('.pdf') ? '📄' : '🖼️'}</span><p style="font-weight:500">${name}${sizeStr}</p><p style="font-size:12px;opacity:.6">Click to change</p>`;
+}
+function resetFileZone() {
+  document.getElementById('fileDropInner').innerHTML = '<span style="font-size:40px">📎</span><p>Drag & drop or <strong>click to browse</strong></p><p style="opacity:.6;font-size:13px">Supports PDF, JPG, PNG (max 10MB)</p>';
+}
+function changePage(p) { currentPage = p; renderRecords(); }
+
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patients – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+let patients = [];
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+  document.getElementById('app').innerHTML = renderLayout('Patients','patients') + `
+  <div class="page-content fade-page">
+    <div class="page-header">
+      <div class="page-header-left"><h2>Patient Management</h2><p>Register and manage all patients</p></div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" onclick="exportPatients()">📥 Export</button>
+        <button class="btn btn-primary" onclick="openAddModal()">➕ Add Patient</button>
+      </div>
+    </div>
+    <div class="stats-grid" style="margin-bottom:24px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="stat-card blue"><div class="stat-icon">🧑</div><div class="stat-info"><div class="stat-value" id="countAll">0</div><div class="stat-label">Total Patients</div></div></div>
+      <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-info"><div class="stat-value" id="countActive">0</div><div class="stat-label">Active</div></div></div>
+      <div class="stat-card red"><div class="stat-icon">🚑</div><div class="stat-info"><div class="stat-value" id="countEmerg">0</div><div class="stat-label">Emergency</div></div></div>
+      <div class="stat-card orange"><div class="stat-icon">🏠</div><div class="stat-info"><div class="stat-value" id="countDisch">0</div><div class="stat-label">Discharged</div></div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">All Patients</div>
+        <div class="table-filters">
+          <div class="search-input"><span>🔍</span><input type="text" id="searchP" placeholder="Search..." oninput="searchPatients(this.value)"></div>
+          <select class="filter-select" onchange="filterP(this.value,'status')"><option value="">All Status</option><option value="active">Active</option><option value="discharged">Discharged</option><option value="emergency">Emergency</option></select>
+          <select class="filter-select" onchange="filterP(this.value,'gender')"><option value="">All Gender</option><option value="male">Male</option><option value="female">Female</option></select>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Patient</th><th>Age/Gender</th><th>Contact</th><th>Blood</th><th>Status</th><th>Admitted</th><th>Actions</th></tr></thead>
+        <tbody id="patientsTable"></tbody>
+      </table></div>
+      <div class="pagination" id="patPag"><div class="pagination-info"></div><div class="pagination-controls"></div></div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="patientModal">
+    <div class="modal">
+      <div class="modal-header"><h3 id="pModalTitle">Add Patient</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editPId">
+        <div class="form-row">
+          <div class="form-group"><label>First Name *</label><input class="form-control" id="pFirst" placeholder="John" required></div>
+          <div class="form-group"><label>Last Name *</label><input class="form-control" id="pLast" placeholder="Doe" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Date of Birth</label><input type="date" class="form-control" id="pDob"></div>
+          <div class="form-group"><label>Gender</label><select class="form-control" id="pGender"><option value="">Select</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Phone *</label><input class="form-control" id="pPhone" placeholder="+1 234 567 8900"></div>
+          <div class="form-group"><label>Email</label><input type="email" class="form-control" id="pEmail" placeholder="patient@email.com"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Blood Type</label><select class="form-control" id="pBlood"><option value="">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
+          <div class="form-group"><label>Status</label><select class="form-control" id="pStatus"><option value="active">Active</option><option value="discharged">Discharged</option><option value="emergency">Emergency</option></select></div>
+        </div>
+        <div class="form-group"><label>Address</label><input class="form-control" id="pAddress" placeholder="123 Main St, City"></div>
+        <div class="form-group"><label>Medical History / Allergies</label><textarea class="form-control" id="pHistory" rows="3" placeholder="Previous conditions, allergies..."></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>Emergency Contact</label><input class="form-control" id="pEmergContact" placeholder="Name & relationship"></div>
+          <div class="form-group"><label>Emergency Phone</label><input class="form-control" id="pEmergPhone" placeholder="+1 234 567 8900"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('patientModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="savePatient()">💾 Save Patient</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="viewPModal">
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header"><h3>Patient Details</h3><button class="modal-close">✕</button></div>
+      <div class="modal-body" id="viewPContent"></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('viewPModal')">Close</button></div>
+    </div>
+  </div>`;
+  initCommon();
+  await loadPatients();
+  subscribeToTable('patients', () => loadPatients());
+})();
+
+let filterState = { status:'', gender:'' };
+
+async function loadPatients() {
+  const { data } = await db.from('patients').select('*').order('created_at',{ascending:false});
+  patients = data || [];
+  animateCounter(document.getElementById('countAll'), patients.length);
+  animateCounter(document.getElementById('countActive'), patients.filter(p=>p.status==='active').length);
+  animateCounter(document.getElementById('countEmerg'), patients.filter(p=>p.status==='emergency').length);
+  animateCounter(document.getElementById('countDisch'), patients.filter(p=>p.status==='discharged').length);
+  paginators['pat'] = new Paginator({ id:'pat', data: patients, perPage:10, tableBody: document.getElementById('patientsTable'), paginationEl: document.getElementById('patPag'), renderRow });
+  paginators['pat'].id = 'pat';
+  applyFilters();
+}
+
+function renderRow(p) {
+  const n = p.full_name||`${p.first_name||''} ${p.last_name||''}`.trim()||'—';
+  const ini = getInitials(n);
+  const sm = {active:'success',discharged:'muted',emergency:'danger'};
+  return `<tr>
+    <td><div style="display:flex;align-items:center;gap:10px">
+      <div class="avatar-initials" style="width:36px;height:36px;font-size:13px;background:${randomGradient(ini)};flex-shrink:0">${ini}</div>
+      <div><div style="font-weight:600">${n}</div><div style="font-size:12px;color:var(--text-muted)">${p.email||'—'}</div></div>
+    </div></td>
+    <td>${calcAge(p.dob)} yrs / ${p.gender||'—'}</td>
+    <td>${p.phone||'—'}</td>
+    <td><span class="badge badge-info">${p.blood_type||'N/A'}</span></td>
+    <td><span class="badge badge-${sm[p.status]||'muted'}"><span class="badge-dot"></span>${p.status||'active'}</span></td>
+    <td>${formatDate(p.created_at)}</td>
+    <td><div style="display:flex;gap:6px">
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="viewP('${p.id}')" title="View">👁️</button>
+      <button class="btn btn-sm btn-secondary btn-icon" onclick="editP('${p.id}')" title="Edit">✏️</button>
+      <button class="btn btn-sm btn-danger btn-icon" onclick="delP('${p.id}')" title="Delete">🗑️</button>
+    </div></td>
+  </tr>`;
+}
+
+function searchPatients(q) {
+  paginators['pat']?.filter(p => { const n=(p.full_name||'').toLowerCase(); return n.includes(q.toLowerCase())||(p.phone||'').includes(q)||(p.email||'').includes(q.toLowerCase()); });
+}
+
+function filterP(val, key) { filterState[key]=val; applyFilters(); }
+function applyFilters() {
+  paginators['pat']?.filter(p => (!filterState.status||p.status===filterState.status)&&(!filterState.gender||p.gender===filterState.gender));
+}
+
+function openAddModal() { clearPForm(); openModal('patientModal'); }
+
+async function savePatient() {
+  const id = document.getElementById('editPId').value;
+  const first = document.getElementById('pFirst').value.trim();
+  const last = document.getElementById('pLast').value.trim();
+  if (!first||!last) { toast('Name required','warning'); return; }
+  const payload = { full_name:`${first} ${last}`, first_name:first, last_name:last, dob:document.getElementById('pDob').value, gender:document.getElementById('pGender').value, phone:document.getElementById('pPhone').value, email:document.getElementById('pEmail').value, blood_type:document.getElementById('pBlood').value, status:document.getElementById('pStatus').value, address:document.getElementById('pAddress').value, medical_history:document.getElementById('pHistory').value, emergency_contact:document.getElementById('pEmergContact').value, emergency_phone:document.getElementById('pEmergPhone').value, is_emergency:document.getElementById('pStatus').value==='emergency' };
+  const { error } = id ? await db.from('patients').update(payload).eq('id',id) : await db.from('patients').insert({...payload,created_at:new Date().toISOString()});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast(id?'Patient updated!':'Patient registered!','success');
+  closeModal('patientModal'); clearPForm(); await loadPatients();
+}
+
+function clearPForm() {
+  ['editPId','pFirst','pLast','pDob','pPhone','pEmail','pAddress','pHistory','pEmergContact','pEmergPhone'].forEach(i=>{ const e=document.getElementById(i); if(e) e.value=''; });
+  ['pGender','pBlood'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('pStatus').value='active';
+  document.getElementById('pModalTitle').textContent='Add Patient';
+}
+
+function editP(id) {
+  const p = patients.find(x=>x.id==id); if(!p) return;
+  document.getElementById('editPId').value=p.id;
+  document.getElementById('pFirst').value=p.first_name||p.full_name?.split(' ')[0]||'';
+  document.getElementById('pLast').value=p.last_name||p.full_name?.split(' ').slice(1).join(' ')||'';
+  document.getElementById('pDob').value=p.dob||'';
+  document.getElementById('pGender').value=p.gender||'';
+  document.getElementById('pPhone').value=p.phone||'';
+  document.getElementById('pEmail').value=p.email||'';
+  document.getElementById('pBlood').value=p.blood_type||'';
+  document.getElementById('pStatus').value=p.status||'active';
+  document.getElementById('pAddress').value=p.address||'';
+  document.getElementById('pHistory').value=p.medical_history||'';
+  document.getElementById('pEmergContact').value=p.emergency_contact||'';
+  document.getElementById('pEmergPhone').value=p.emergency_phone||'';
+  document.getElementById('pModalTitle').textContent='Edit Patient';
+  openModal('patientModal');
+}
+
+function viewP(id) {
+  const p = patients.find(x=>x.id==id); if(!p) return;
+  const ini = getInitials(p.full_name||'');
+  document.getElementById('viewPContent').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--border)">
+      <div class="avatar-initials" style="width:60px;height:60px;font-size:22px;border-radius:16px;background:${randomGradient(ini)}">${ini}</div>
+      <div><div style="font-size:20px;font-weight:700">${p.full_name||'—'}</div><div style="color:var(--text-secondary)">${p.email||'No email'}</div>
+      <span class="badge badge-${p.status==='active'?'success':p.status==='emergency'?'danger':'muted'}" style="margin-top:6px">${p.status||'active'}</span></div>
+    </div>
+    <div class="form-row">
+      <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">AGE / GENDER</div><div style="font-weight:600">${calcAge(p.dob)} yrs / ${p.gender||'—'}</div></div>
+      <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">BLOOD TYPE</div><div style="font-weight:600">${p.blood_type||'Unknown'}</div></div>
+      <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">PHONE</div><div style="font-weight:600">${p.phone||'—'}</div></div>
+    </div>
+    <div style="margin-top:16px"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">ADDRESS</div><div>${p.address||'—'}</div></div>
+    <div style="margin-top:16px;padding:16px;background:var(--bg-input);border-radius:12px">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">MEDICAL HISTORY</div>
+      <div style="font-size:14px;color:var(--text-secondary)">${p.medical_history||'No history recorded.'}</div>
+    </div>
+    ${p.emergency_contact?`<div style="margin-top:12px;padding:14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:12px">
+      <div style="font-size:12px;color:var(--danger);margin-bottom:4px;font-weight:600">EMERGENCY CONTACT</div>
+      <div>${p.emergency_contact} — ${p.emergency_phone||'—'}</div></div>`:''}`;
+  openModal('viewPModal');
+}
+
+async function delP(id) {
+  confirm('Delete this patient?', async () => {
+    const { error } = await db.from('patients').delete().eq('id',id);
+    if (error) { toast('Delete failed','error'); return; }
+    toast('Patient deleted','success'); await loadPatients();
+  });
+}
+
+function exportPatients() {
+  const csv = ['Name,DOB,Gender,Phone,Email,Blood Type,Status,Admitted',...patients.map(p=>`${p.full_name||''},${p.dob||''},${p.gender||''},${p.phone||''},${p.email||''},${p.blood_type||''},${p.status||''},${formatDate(p.created_at)}`)].join('\n');
+  const a = document.createElement('a'); a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv); a.download='patients.csv'; a.click();
+  toast('Exported!','success');
+}
+</script>
+</body>
+</html>

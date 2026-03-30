@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard – MediCore HMS</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<div class="app-layout" id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/utils.js"></script>
+<script src="../js/layout.js"></script>
+<script>
+(async () => {
+  const auth = await requireAuth();
+  if (!auth) return;
+
+  document.getElementById('app').innerHTML = renderLayout('Dashboard', 'dashboard') + `
+  <div class="page-content fade-page">
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card blue"><div class="stat-icon">🧑‍⚕️</div><div class="stat-info"><div class="stat-value" id="statPatients">0</div><div class="stat-label">Total Patients</div><div class="stat-change up" id="statPChange">↑ Loading...</div></div></div>
+      <div class="stat-card green"><div class="stat-icon">👨‍⚕️</div><div class="stat-info"><div class="stat-value" id="statDoctors">0</div><div class="stat-label">Active Doctors</div><div class="stat-change up" id="statDChange">↑ Loading...</div></div></div>
+      <div class="stat-card orange"><div class="stat-icon">📅</div><div class="stat-info"><div class="stat-value" id="statAppts">0</div><div class="stat-label">Today's Appointments</div><div class="stat-change up">↑ Scheduled</div></div></div>
+      <div class="stat-card purple"><div class="stat-icon">🛏️</div><div class="stat-info"><div class="stat-value" id="statBeds">0</div><div class="stat-label">Beds Available</div><div class="stat-change" id="statBedChange">of 0 total</div></div></div>
+      <div class="stat-card teal"><div class="stat-icon">💰</div><div class="stat-info"><div class="stat-value" id="statRevenue">$0</div><div class="stat-label">Today's Revenue</div><div class="stat-change up">↑ Payments</div></div></div>
+      <div class="stat-card red"><div class="stat-icon">🚑</div><div class="stat-info"><div class="stat-value" id="statEmerg">0</div><div class="stat-label">Emergency Cases</div><div class="stat-change down">Active</div></div></div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid-2" style="margin-bottom:24px">
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Patient Admissions</div>
+          <div class="chart-period-tabs">
+            <button class="period-tab active">7D</button>
+            <button class="period-tab">1M</button>
+            <button class="period-tab">3M</button>
+          </div>
+        </div>
+        <canvas id="admissionsChart" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Bed Occupancy</div>
+        </div>
+        <canvas id="bedChart" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- Bottom Row -->
+    <div class="grid-2">
+      <!-- Recent Appointments -->
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Today's Appointments</div>
+          <a href="appointments.html" style="font-size:13px;color:var(--primary)">View All →</a>
+        </div>
+        <div id="todayAppts" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+
+      <!-- Revenue Chart -->
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Revenue Overview</div>
+        </div>
+        <canvas id="revenueChart" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div style="margin-top:24px">
+      <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;color:var(--text-primary)">Quick Actions</h3>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="window.location.href='patients.html'">➕ Add Patient</button>
+        <button class="btn btn-secondary" onclick="window.location.href='appointments.html'">📅 Book Appointment</button>
+        <button class="btn btn-secondary" onclick="window.location.href='beds.html'">🛏️ Manage Beds</button>
+        <button class="btn btn-danger" onclick="window.location.href='emergency.html'">🚑 Emergency</button>
+        <button class="btn btn-success" onclick="window.location.href='billing.html'">💳 Generate Bill</button>
+      </div>
+    </div>
+  </div>
+  `;
+
+  initCommon();
+  await loadDashboard();
+})();
+
+async function loadDashboard() {
+  try {
+    // Fetch counts in parallel
+    const [patients, doctors, beds, billing, appointments, emergency] = await Promise.all([
+      db.from('patients').select('id', { count: 'exact' }),
+      db.from('doctors').select('id', { count: 'exact' }),
+      db.from('beds').select('status'),
+      db.from('billing').select('amount, created_at'),
+      db.from('appointments').select('*').gte('date', new Date().toISOString().split('T')[0]).lt('date', new Date(Date.now()+86400000).toISOString().split('T')[0]),
+      db.from('patients').select('id', { count: 'exact' }).eq('is_emergency', true)
+    ]);
+
+    const totalPatients = patients.count || 0;
+    const totalDoctors = doctors.count || 0;
+    const availBeds = (beds.data || []).filter(b => b.status === 'available').length;
+    const totalBeds = (beds.data || []).length;
+    const todayRevenue = (billing.data || []).filter(b => b.created_at?.startsWith(new Date().toISOString().split('T')[0])).reduce((s, b) => s + (b.amount || 0), 0);
+    const emergCount = emergency.count || 0;
+    const apptCount = (appointments.data || []).length;
+
+    // Animate counters
+    animateCounter(document.getElementById('statPatients'), totalPatients);
+    animateCounter(document.getElementById('statDoctors'), totalDoctors);
+    animateCounter(document.getElementById('statAppts'), apptCount);
+    animateCounter(document.getElementById('statBeds'), availBeds);
+    animateCounter(document.getElementById('statEmerg'), emergCount);
+    document.getElementById('statRevenue').textContent = formatCurrency(todayRevenue);
+    document.getElementById('statBedChange').textContent = `of ${totalBeds} total`;
+
+    // Render today's appointments
+    const apptContainer = document.getElementById('todayAppts');
+    if ((appointments.data || []).length === 0) {
+      apptContainer.innerHTML = '<div class="empty-state" style="padding:30px"><div class="empty-icon">📅</div><p>No appointments today</p></div>';
+    } else {
+      apptContainer.innerHTML = (appointments.data || []).slice(0, 5).map(a => `
+        <div class="appt-card">
+          <div class="appt-time">
+            <div class="time">${a.time || '—'}</div>
+            <div class="date">Today</div>
+          </div>
+          <div class="appt-divider"></div>
+          <div class="appt-info">
+            <div class="appt-patient">${a.patient_name || 'Patient'}</div>
+            <div class="appt-doctor">Dr. ${a.doctor_name || 'Doctor'}</div>
+          </div>
+          <span class="badge badge-${a.status === 'confirmed' ? 'success' : a.status === 'cancelled' ? 'danger' : 'warning'}">${a.status || 'pending'}</span>
+        </div>
+      `).join('');
+    }
+
+    // Render appointment badge
+    const badge = document.getElementById('apptBadge');
+    if (badge) badge.textContent = apptCount;
+
+    renderCharts(beds.data || [], billing.data || []);
+  } catch (err) {
+    console.error('Dashboard load error:', err);
+    renderCharts([], []);
+  }
+}
+
+function renderCharts(bedsData, billingData) {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#64748b';
+
+  Chart.defaults.color = textColor;
+  Chart.defaults.borderColor = gridColor;
+  Chart.defaults.font.family = "'Outfit', sans-serif";
+
+  // Admissions bar chart (mock 7-day data)
+  const admCtx = document.getElementById('admissionsChart').getContext('2d');
+  new Chart(admCtx, {
+    type: 'bar',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'Admissions',
+        data: [12, 19, 8, 25, 14, 9, 17],
+        backgroundColor: 'rgba(14,165,233,0.6)',
+        borderColor: '#0ea5e9',
+        borderWidth: 2,
+        borderRadius: 8,
+        borderSkipped: false,
+      }, {
+        label: 'Discharges',
+        data: [8, 15, 6, 20, 12, 7, 13],
+        backgroundColor: 'rgba(16,185,129,0.6)',
+        borderColor: '#10b981',
+        borderWidth: 2,
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } }
+  });
+
+  // Bed occupancy doughnut
+  const avail = bedsData.filter(b => b.status === 'available').length || 45;
+  const occ = bedsData.filter(b => b.status === 'occupied').length || 38;
+  const clean = bedsData.filter(b => b.status === 'cleaning').length || 7;
+  const bedCtx = document.getElementById('bedChart').getContext('2d');
+  new Chart(bedCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Available', 'Occupied', 'Cleaning'],
+      datasets: [{ data: [avail, occ, clean], backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(239,68,68,0.8)', 'rgba(245,158,11,0.8)'], borderWidth: 0, hoverOffset: 8 }]
+    },
+    options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+  });
+
+  // Revenue line chart
+  const revCtx = document.getElementById('revenueChart').getContext('2d');
+  new Chart(revCtx, {
+    type: 'line',
+    data: {
+      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
+      datasets: [{
+        label: 'Revenue ($)',
+        data: [42000, 38000, 55000, 48000, 62000, 58000, 71000],
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16,185,129,0.1)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#10b981',
+        pointRadius: 4,
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: false } } }
+  });
+}
+</script>
+</body>
+</html>
